@@ -32,14 +32,16 @@ using namespace minko::math;
 
 const uint            WINDOW_WIDTH    = 800;
 const uint            WINDOW_HEIGHT    = 600;
-const std::string    MODEL_FILENAME    = "statueMax.dae";
+//const std::string    MODEL_FILENAME    = "statueMax.dae";
+const std::string    MODEL_FILENAME    = "stone-minx-dense.dae";
 
 const float         Y_ROTATION_FACTOR = -(2* PI) / 400.f;
+const float         HAND_POS_LERP_RATIO = 0.1f;
 
 int
 main(int argc, char** argv)
 {
-    auto canvas = Canvas::create("Minko Example - Assimp", WINDOW_WIDTH, WINDOW_HEIGHT);
+    auto canvas = Canvas::create("v-interact : Museum Relic", WINDOW_WIDTH, WINDOW_HEIGHT);
     auto sceneManager = SceneManager::create(canvas);
     auto defaultOptions = sceneManager->assets()->loader()->options();
 
@@ -70,7 +72,9 @@ main(int argc, char** argv)
     const clock_t      START_CLOCK                = clock();
     float    previousTime              = 0.0f;
 
+    Vector3::Ptr handPos_persist = Vector3::create();
     float rotationYAmount = 0.f;
+    float rotationXAmount = 0.f;
 
     auto leapEnterFrame = controller->enterFrame()->connect([&](input::leap::Controller::Ptr c)
     {
@@ -83,30 +87,30 @@ main(int argc, char** argv)
 
         auto   frame               = c->frame();
 
-        Vector3::Ptr handPos = NULL;
-
+        Vector3::Ptr handPos = Vector3::create();
         if (frame->numHands() == 1)
         {
-            rotationYAmount = frame->handByIndex(0)->palmPosition(handPos)->x() 
-                    * Y_ROTATION_FACTOR;
+            frame->handByIndex(0)->palmPosition(handPos);
         } else if (frame->numHands() >= 1) {
+            frame->handByIndex(0)->palmPosition(handPos);
+            // TODO : fix this two handed averaging
+            /*
             Vector3::Ptr leftHand, rightHand;
             frame->leftmostHand()->palmPosition(leftHand);
             frame->rightmostHand()->palmPosition(rightHand);
-            Vector3::Ptr handPos = Vector3::create(
+            handPos = Vector3::create(
                 (leftHand->x()+rightHand->x())/2,
                 (leftHand->y()+rightHand->y())/2,
                 (leftHand->z()+rightHand->z())/2
             );
+            */
         }
-
-        /*
-        if( handPos != NULL ) {
-            // do something
-            //Y_ROTATION_FACTOR
-            rotationYAmount = handPos->x() * Y_ROTATION_FACTOR;
-        }
-        */
+        handPos_persist->lerp(
+            handPos,
+            HAND_POS_LERP_RATIO
+            );
+        rotationYAmount = handPos_persist->x() * Y_ROTATION_FACTOR;
+        rotationXAmount = handPos_persist->z() * Y_ROTATION_FACTOR;
     });
 
     // on initialization of the Leap controller
@@ -148,8 +152,14 @@ main(int argc, char** argv)
         if( !model->hasComponent<Transform>() ) {
             model->addComponent(component::Transform::create());
         }
-        model->component<Transform>()->matrix()->appendTranslation(0.f, -10.f, 0.f);
-        model->component<Transform>()->matrix()->appendRotationY(PI/2);
+
+        // these are for the buddha statue
+        //model->component<Transform>()->matrix()->appendTranslation(0.f, -10.f, 0.f);
+        //model->component<Transform>()->matrix()->appendRotationY(PI/2);
+
+        // these are for the stone minx
+        model->component<Transform>()->matrix()->appendRotationY(PI);
+        model->component<Transform>()->matrix()->appendScale(20.f);
 
         auto surfaceNodeSet = scene::NodeSet::create(model)
             ->descendants(true)
@@ -197,6 +207,7 @@ main(int argc, char** argv)
         camModMatrix->copyFrom(camOriginMatrix);
         // apply changes to camera
         camModMatrix->appendRotationY(rotationYAmount);
+        camModMatrix->appendRotationX(rotationXAmount);
         // set camera position
         camera->component<Transform>()->matrix()->copyFrom(camModMatrix);
 
