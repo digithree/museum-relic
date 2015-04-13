@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SO
 #include "minko/MinkoSDL.hpp"
 #include "minko/MinkoJPEG.hpp"
 #include "minko/MinkoPNG.hpp"
+#include "minko/MinkoLeap.hpp"
 
 using namespace minko;
 using namespace minko::component;
@@ -32,6 +33,8 @@ using namespace minko::math;
 const uint            WINDOW_WIDTH    = 800;
 const uint            WINDOW_HEIGHT    = 600;
 const std::string    MODEL_FILENAME    = "statueMax.dae";
+
+const float         Y_ROTATION_FACTOR = -(2* PI) / 400.f;
 
 int
 main(int argc, char** argv)
@@ -61,6 +64,62 @@ main(int argc, char** argv)
         sceneManager->assets()->loader()->load();
     });
 
+
+    // LEAP MOTION
+    auto controller     = input::leap::Controller::create(canvas);
+    const clock_t      START_CLOCK                = clock();
+    float    previousTime              = 0.0f;
+
+    float rotationYAmount = 0.f;
+
+    auto leapEnterFrame = controller->enterFrame()->connect([&](input::leap::Controller::Ptr c)
+    {
+        if (!c->frame()->isValid())
+            return;
+
+        const float currentTime    = (clock() - START_CLOCK) / float(CLOCKS_PER_SEC);
+        const float deltaTime      = currentTime - previousTime;
+        previousTime               = currentTime;
+
+        auto   frame               = c->frame();
+
+        Vector3::Ptr handPos = NULL;
+
+        if (frame->numHands() == 1)
+        {
+            rotationYAmount = frame->handByIndex(0)->palmPosition(handPos)->x() 
+                    * Y_ROTATION_FACTOR;
+        } else if (frame->numHands() >= 1) {
+            Vector3::Ptr leftHand, rightHand;
+            frame->leftmostHand()->palmPosition(leftHand);
+            frame->rightmostHand()->palmPosition(rightHand);
+            Vector3::Ptr handPos = Vector3::create(
+                (leftHand->x()+rightHand->x())/2,
+                (leftHand->y()+rightHand->y())/2,
+                (leftHand->z()+rightHand->z())/2
+            );
+        }
+
+        /*
+        if( handPos != NULL ) {
+            // do something
+            //Y_ROTATION_FACTOR
+            rotationYAmount = handPos->x() * Y_ROTATION_FACTOR;
+        }
+        */
+    });
+
+    // on initialization of the Leap controller
+    auto leapConnected = controller->connected()->connect([](input::leap::Controller::Ptr c)
+    {
+        //c->enableGesture(input::leap::Gesture::Type::ScreenTap);
+        //c->enableGesture(input::leap::Gesture::Type::Swipe);
+
+#ifdef DEBUG
+        std::cout << "Leap controller connected" << std::endl;
+#endif // DEBUG
+    });
+
     auto root = scene::Node::create("root")
         ->addComponent(sceneManager);
 
@@ -76,6 +135,12 @@ main(int argc, char** argv)
             )
         );
     root->addChild(camera);
+
+    Matrix4x4::Ptr camOriginMatrix = Matrix4x4::create();
+    Matrix4x4::Ptr camModMatrix = Matrix4x4::create();
+
+    camOriginMatrix->copyFrom(camera->component<Transform>()->matrix());
+    camModMatrix->copyFrom(camOriginMatrix);
 
     auto _ = sceneManager->assets()->loader()->complete()->connect([ = ](file::Loader::Ptr loader)
     {
@@ -123,31 +188,22 @@ main(int argc, char** argv)
         camera->component<PerspectiveCamera>()->aspectRatio(float(w) / float(h));
     });
 
-    // UI
-    Signal<input::Mouse::Ptr, int, int>::Slot mouseMove;
-    float cameraRotationSpeed = 0.f;
-
-    auto mouseDown = canvas->mouse()->leftButtonDown()->connect([&](input::Mouse::Ptr mouse)
-    {
-        mouseMove = canvas->mouse()->move()->connect([&](input::Mouse::Ptr mouse, int dx, int dy)
-        {
-            cameraRotationSpeed = (float) -dx * .01f;
-        });
-    });
-
-    auto mouseUp = canvas->mouse()->leftButtonUp()->connect([&](input::Mouse::Ptr mouse)
-    {
-        mouseMove = nullptr;
-    });
-
     auto enterFrame = canvas->enterFrame()->connect([&](Canvas::Ptr canvas, float time, float deltaTime)
     {
-        camera->component<Transform>()->matrix()->appendRotationY(cameraRotationSpeed);
-        cameraRotationSpeed *= .8f;
+        //camera->component<Transform>()->matrix()->appendRotationY(PI);
+        //cameraRotationSpeed *= .8f;
+
+        // reset camera position
+        camModMatrix->copyFrom(camOriginMatrix);
+        // apply changes to camera
+        camModMatrix->appendRotationY(rotationYAmount);
+        // set camera position
+        camera->component<Transform>()->matrix()->copyFrom(camModMatrix);
 
         sceneManager->nextFrame(time, deltaTime);
     });
 
+    controller->start();
     fxLoader->load();
     canvas->run();
 
