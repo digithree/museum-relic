@@ -36,6 +36,7 @@ const uint            WINDOW_HEIGHT    = 600;
 const std::string    MODEL_FILENAME    = "stone-minx-dense.dae";
 
 const float         Y_ROTATION_FACTOR = -(2* PI) / 400.f;
+const float         ZOOM_FACTOR = 1.f / 5.f;
 const float         HAND_POS_LERP_RATIO = 0.1f;
 
 int
@@ -73,6 +74,7 @@ main(int argc, char** argv)
     float    previousTime              = 0.0f;
 
     Vector3::Ptr handPos_persist = Vector3::create();
+    float translationZAmount = 0.f;
     float rotationYAmount = 0.f;
     float rotationXAmount = 0.f;
 
@@ -88,11 +90,14 @@ main(int argc, char** argv)
         auto   frame               = c->frame();
 
         Vector3::Ptr handPos = Vector3::create();
+        bool handClosed = false;
         if (frame->numHands() == 1)
         {
             frame->handByIndex(0)->palmPosition(handPos);
+            handClosed = frame->handByIndex(0)->grabStrength() >= 0.5f;
         } else if (frame->numHands() >= 1) {
             frame->handByIndex(0)->palmPosition(handPos);
+            handClosed = frame->handByIndex(0)->grabStrength() >= 0.5f;
             // TODO : fix this two handed averaging
             /*
             Vector3::Ptr leftHand, rightHand;
@@ -109,8 +114,12 @@ main(int argc, char** argv)
             handPos,
             HAND_POS_LERP_RATIO
             );
-        rotationYAmount = handPos_persist->x() * Y_ROTATION_FACTOR;
-        rotationXAmount = handPos_persist->z() * Y_ROTATION_FACTOR;
+        if( handClosed ) {
+            translationZAmount = handPos_persist->length() * ZOOM_FACTOR;
+        } else {
+            rotationYAmount = handPos_persist->x() * Y_ROTATION_FACTOR;
+            rotationXAmount = handPos_persist->z() * Y_ROTATION_FACTOR;
+        }
     });
 
     // on initialization of the Leap controller
@@ -206,6 +215,7 @@ main(int argc, char** argv)
         // reset camera position
         camModMatrix->copyFrom(camOriginMatrix);
         // apply changes to camera
+        camModMatrix->appendTranslation(0.f, 0.f, translationZAmount);
         camModMatrix->appendRotationY(rotationYAmount);
         camModMatrix->appendRotationX(rotationXAmount);
         // set camera position
