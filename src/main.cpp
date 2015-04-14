@@ -32,16 +32,31 @@ using namespace minko::math;
 
 const uint            WINDOW_WIDTH    = 800;
 const uint            WINDOW_HEIGHT    = 600;
-//const std::string    MODEL_FILENAME    = "statueMax.dae";
-const std::string    MODEL_FILENAME    = "stone-minx-dense.dae";
+std::string    MODEL_FILENAME;
 
-const float         Y_ROTATION_FACTOR = -(2* PI) / 400.f;
-const float         ZOOM_FACTOR = 1.f / 5.f;
-const float         HAND_POS_LERP_RATIO = 0.1f;
+const float         Y_ROTATION_FACTOR = -(2* PI) / 170.f;
+const float         X_ROTATION_FACTOR = -(2* PI) / 300.f;
+const double         ZOOM_FACTOR = 0.4f;
+//const float         HAND_POS_LERP_RATIO = 0.02f;
+const double         TRANS_LERP_RATIO = 1.f;
+const double         ROT_LERP_RATIO = 1.f;
 
 int
 main(int argc, char** argv)
 {
+    int modelNum = 0;
+    if( argc == 2 )  {
+        if( argv[1][0] == '1' ) {
+            modelNum = 0;
+            MODEL_FILENAME = "statueMax.dae";
+        } else if( argv[1][0] == '2' ) {
+            modelNum = 1;
+            MODEL_FILENAME = "stone-minx-dense.dae";
+        } else if( argv[1][0] == '3' ) {
+            modelNum = 2;
+            MODEL_FILENAME = "ball-rough-mat.dae";
+        }
+    }
     auto canvas = Canvas::create("v-interact : Museum Relic", WINDOW_WIDTH, WINDOW_HEIGHT);
     auto sceneManager = SceneManager::create(canvas);
     auto defaultOptions = sceneManager->assets()->loader()->options();
@@ -71,20 +86,30 @@ main(int argc, char** argv)
     // LEAP MOTION
     auto controller     = input::leap::Controller::create(canvas);
     const clock_t      START_CLOCK                = clock();
-    float    previousTime              = 0.0f;
+    double    previousTime              = 0.0f;
 
     Vector3::Ptr handPos_persist = Vector3::create();
-    float translationZAmount = 0.f;
-    float rotationYAmount = 0.f;
-    float rotationXAmount = 0.f;
+    Vector3::Ptr handPos_grab = Vector3::create();
+    double translationXAmount = 0.f;
+    double translationXAmount_target = 0.f;
+    double translationYAmount = 0.f;
+    double translationYAmount_target = 0.f;
+    double translationZAmount = 0.f;
+    double translationZAmount_target = 0.f;
+    double rotationYAmount = 0.f;
+    double rotationYAmount_target = 0.f;
+    double rotationXAmount = 0.f;
+    double rotationXAmount_target = 0.f;
+
+    bool handClosedLast = false;
 
     auto leapEnterFrame = controller->enterFrame()->connect([&](input::leap::Controller::Ptr c)
     {
         if (!c->frame()->isValid())
             return;
 
-        const float currentTime    = (clock() - START_CLOCK) / float(CLOCKS_PER_SEC);
-        const float deltaTime      = currentTime - previousTime;
+        const double currentTime    = (clock() - START_CLOCK) / double(CLOCKS_PER_SEC);
+        const double deltaTime      = currentTime - previousTime;
         previousTime               = currentTime;
 
         auto   frame               = c->frame();
@@ -110,16 +135,40 @@ main(int argc, char** argv)
             );
             */
         }
+        /*
         handPos_persist->lerp(
             handPos,
             HAND_POS_LERP_RATIO
             );
+            */
+        handPos_persist->setTo(
+            handPos->x(),
+            handPos->y(),
+            handPos->z()
+            );
         if( handClosed ) {
-            translationZAmount = handPos_persist->length() * ZOOM_FACTOR;
+            if( !handClosedLast ) {
+                handPos_grab->setTo(
+                    handPos_persist->x(),
+                    handPos_persist->y(),
+                    handPos_persist->z()
+                    );
+            }
+            translationXAmount_target = (handPos_persist->x()-handPos_grab->x())
+                    * ZOOM_FACTOR;
+            translationYAmount_target = (handPos_grab->y()-handPos_persist->y())
+                    * ZOOM_FACTOR;
+            translationZAmount_target = (handPos_persist->z()-handPos_grab->z())
+                    * ZOOM_FACTOR;
+            //translationZAmount_target = handPos_persist->length() * ZOOM_FACTOR;
         } else {
-            rotationYAmount = handPos_persist->x() * Y_ROTATION_FACTOR;
-            rotationXAmount = handPos_persist->z() * Y_ROTATION_FACTOR;
+            rotationYAmount_target = handPos_persist->x() * Y_ROTATION_FACTOR;
+            rotationXAmount_target = -handPos_persist->z() * X_ROTATION_FACTOR;
+            translationXAmount_target = 0.f;
+            translationYAmount_target = 0.f;
+            translationZAmount_target = 0.f;
         }
+        handClosedLast = handClosed;
     });
 
     // on initialization of the Leap controller
@@ -137,14 +186,15 @@ main(int argc, char** argv)
         ->addComponent(sceneManager);
 
     auto camera = scene::Node::create("camera")
-        ->addComponent(Renderer::create(0x7f7f7fff))
+        ->addComponent(Renderer::create(0x7f7f7fff)) //d5ce81
         ->addComponent(Transform::create(
             Matrix4x4::create()->lookAt(Vector3::zero(), Vector3::create(0., 0., -65.f))
             //Matrix4x4::create()->lookAt(Vector3::create(0.f, 0.75f, 0.f), Vector3::create(0.25f, 0.75f, 2.5f))
             ))
         ->addComponent(PerspectiveCamera::create(
             //canvas->aspectRatio()
-            (float) WINDOW_WIDTH / (float) WINDOW_HEIGHT, (float) PI * 0.25f, .1f, 1000.f
+            (float) WINDOW_WIDTH / (float) WINDOW_HEIGHT,
+            (float) PI * 0.25f, .1f, 1000.f
             )
         );
     root->addChild(camera);
@@ -162,13 +212,19 @@ main(int argc, char** argv)
             model->addComponent(component::Transform::create());
         }
 
-        // these are for the buddha statue
-        //model->component<Transform>()->matrix()->appendTranslation(0.f, -10.f, 0.f);
-        //model->component<Transform>()->matrix()->appendRotationY(PI/2);
-
-        // these are for the stone minx
-        model->component<Transform>()->matrix()->appendRotationY(PI);
-        model->component<Transform>()->matrix()->appendScale(20.f);
+        if( modelNum == 0 ) {
+            // these are for the buddha statue
+            model->component<Transform>()->matrix()->appendTranslation(0.f, -10.f, 0.f);
+            model->component<Transform>()->matrix()->appendRotationY(PI/2);
+        } else if( modelNum == 1 ) {
+            // these are for the stone minx
+            model->component<Transform>()->matrix()->appendRotationY(PI);
+            model->component<Transform>()->matrix()->appendScale(25.f);
+        } else if( modelNum == 2 ) {
+            // these are for the ball
+            model->component<Transform>()->matrix()->appendRotationY(PI);
+            model->component<Transform>()->matrix()->appendScale(35.f);
+        }
 
         auto surfaceNodeSet = scene::NodeSet::create(model)
             ->descendants(true)
@@ -177,7 +233,7 @@ main(int argc, char** argv)
             return n->hasComponent<Surface>();
         });
 
-        root->addComponent(AmbientLight::create(0.9f));
+        root->addComponent(AmbientLight::create(1.f));
 
         // Add a simple directional light to really see the camera rotation
         /*
@@ -209,13 +265,30 @@ main(int argc, char** argv)
 
     auto enterFrame = canvas->enterFrame()->connect([&](Canvas::Ptr canvas, float time, float deltaTime)
     {
-        //camera->component<Transform>()->matrix()->appendRotationY(PI);
-        //cameraRotationSpeed *= .8f;
+        double deltaTimeSecs = (double)deltaTime / 1000;
+        // update variables
+        translationXAmount = translationXAmount
+                + ((translationXAmount_target - translationXAmount) 
+                * TRANS_LERP_RATIO * deltaTimeSecs);
+        translationYAmount = translationYAmount
+                + ((translationYAmount_target - translationYAmount)
+                * TRANS_LERP_RATIO * deltaTimeSecs);
+        translationZAmount = translationZAmount
+                + ((translationZAmount_target - translationZAmount)
+                * TRANS_LERP_RATIO * deltaTimeSecs);
+        rotationXAmount = rotationXAmount
+                + ((rotationXAmount_target - rotationXAmount)
+                * ROT_LERP_RATIO * deltaTimeSecs);
+        rotationYAmount = rotationYAmount
+                + ((rotationYAmount_target - rotationYAmount)
+                * ROT_LERP_RATIO * deltaTimeSecs);
 
         // reset camera position
         camModMatrix->copyFrom(camOriginMatrix);
         // apply changes to camera
-        camModMatrix->appendTranslation(0.f, 0.f, translationZAmount);
+        //camModMatrix->appendTranslation(0.f, 0.f, translationZAmount);
+        camModMatrix->appendTranslation(
+            translationXAmount, translationYAmount, translationZAmount);
         camModMatrix->appendRotationY(rotationYAmount);
         camModMatrix->appendRotationX(rotationXAmount);
         // set camera position
